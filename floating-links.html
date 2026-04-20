@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Web Page</title>
+</head>
+<body style="background-color: #667">
+<div style="display: flex; flex-direction: row">
+  <canvas id="canvas"
+    width="800" height="800" style="background-color: #fff"
+    onmousedown="onMouseDown(event.offsetX, event.offsetY)"
+    onmousemove="onMouseMove(event.offsetX, event.offsetY)"
+    onmouseup="onMouseUp()"
+    onwheel="onWheel(event.wheelDelta)"
+  ></canvas>
+
+  <div style="display: flex; flex-direction: column; margin-left: 12px; width: 220px;">
+    <label for="repel-force">Repel force: <span id="display-repel-force"></span></label>
+    <input type="range" id="repel-force" oninput="setRepelForce(this.value)" min="10" max="500" value="100" step="5">
+    
+    <label for="repel-falloff">Repel falloff: <span id="display-repel-falloff"></span></label>
+    <input type="range" id="repel-falloff" oninput="setRepelFalloff(this.value)" min="0" max="1" value="0.4" step="0.01">
+    
+    <label for="link-length">Link length: <span id="display-link-length"></span></label>
+    <input type="range" id="link-length" oninput="setLinkLength(this.value)" min="20" max="100" value="50" step="1">
+    
+    <label for="link-force">Link force: <span id="display-link-force"></span></label>
+    <input type="range" id="link-force" oninput="setLinkForce(this.value)" min="10" max="500" value="200" step="5">
+    
+    <label for="link-stiffness">Link stiffness: <span id="display-link-stiffness"></span></label>
+    <input type="range" id="link-stiffness" oninput="setLinkStiffness(this.value)" min="0.1" max="1.0" value="0.5" step="0.01">
+    
+    <label for="damping">Damping: <span id="display-damping"></span></label>
+    <input type="range" id="damping" oninput="setDamping(this.value)" min="0" max="0.2" value="0.05" step="0.001">
+    
+    <button onclick="resetVariables()">Reset all</button>
+    
+    <label for="num-points"># points: <span id="display-num-points"></span></label>
+    <input type="range" id="num-points" oninput="setNumPoints(this.value)" min="5" max="300" value="150" step="1">
+    
+    <label for="strategy">Generation strategy</label>
+    <select id="strategy" value="web-nearest-neighbor" oninput="setStrategy(this.value)">
+      <option value="web-nearest-neighbor">Nearest-neighbors web</option>
+      <option value="tree">Tree</option>
+      <option value="loop">Loop</option>
+    </select>
+    
+    <button id="regenerate-button" onclick="buildWeb()">Regenerate web</button>
+    
+    <button id="randomize-points-button" onclick="randomizePoints()">Randomize point locations</button>
+    
+    <p>Try clicking and dragging a point or clicking on any two points!</p>
+  </div>
+</div>
+
+<script type="text/javascript">
+const canvas = document.getElementById("canvas")
+const ctx = canvas.getContext("2d")
+
+let points = [];
+let links = [];
+let linkCache = {};
+
+const pointRadius = 10;
+const movementFactor = 60;
+let numPoints = 0;
+let slowdownFactor = 0;
+let repelForce = 0;
+let repelFalloff = 0;
+let linkForce = 0;
+let linkLength = 0;
+let linkStiffness = 0;
+let generationStrategy = "";
+
+const setRepelForce = (value) => {
+  repelForce = +value;
+  document.getElementById("repel-force").value = value;
+  document.getElementById("display-repel-force").innerText = value;
+}
+const setRepelFalloff = (value) => {
+  repelFalloff = +value;
+  document.getElementById("repel-falloff").value = value;
+  document.getElementById("display-repel-falloff").innerText = value;
+}
+const setLinkLength = (value) => {
+  linkLength = +value;
+  document.getElementById("link-length").value = value;
+  document.getElementById("display-link-length").innerText = value;
+}
+const setLinkStiffness = (value) => {
+  linkStiffness = +value;
+  document.getElementById("link-stiffness").value = value;
+  document.getElementById("display-link-stiffness").innerText = value;
+}
+const setLinkForce = (value) => {
+  linkForce = +value;
+  document.getElementById("link-force").value = value;
+  document.getElementById("display-link-force").innerText = value;
+}
+const setDamping = (value) => {
+  slowdownFactor = 1 - value;
+  document.getElementById("damping").value = value;
+  document.getElementById("display-damping").innerText = value;
+}
+const setNumPoints = (value) => {
+  numPoints = +value;
+  document.getElementById("num-points").value = value;
+  document.getElementById("display-num-points").innerText = value;
+}
+const setStrategy = (value) => {
+  generationStrategy = value;
+  document.getElementById("strategy").value = value;
+}
+
+const addLink = (i, j) => {
+  if (i > j) [i, j] = [j, i];
+  links.push([i, j]);
+  linkCache[[i,j]] = true;
+}
+const removeLink = (i, j) => {
+  if (i > j) [i, j] = [j, i];
+  links.splice(findLinkIndex(i, j), 1);
+  linkCache[[i,j]] = false;
+}
+const findLinkIndex = (i, j) => {
+  if (i > j) [i, j] = [j, i];
+  return links.findIndex(l => l[0] === i && l[1] === j);
+}
+const haveLink = (i, j) => {
+  if (i > j) [i, j] = [j, i];
+  return !!linkCache[[i, j]];
+}
+
+const randomizePoints = () => {
+  for (const p of points) {
+    p.x = Math.random() * 400 - 200;
+    p.y = Math.random() * 400 - 200;
+    p.dx = 0;
+    p.dy = 0;
+  }
+}
+
+const buildWeb = async () => {
+  document.getElementById("regenerate-button").innerText = "Regenerating...";
+  
+  // Give the browser time to redraw the button
+  await new Promise(resolve => setTimeout(resolve, 0));
+  
+  (function() {
+    points = [];
+    links = [];
+    linkCache = {};
+    
+    for (let i = 0; i < numPoints; i++) {
+      points.push({
+        x: 0,
+        y: 0,
+        dx: 0,
+        dy: 0,
+        id: points.length,
+      });
+    }
+    randomizePoints();
+
+    const potentialLinks = [];
+    for (let i = 0; i < points.length; i++) {
+      const p1 = points[i];
+      for (let j = i + 1; j < points.length; j++) {
+        const p2 = points[j];
+        const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        const newLink = {
+          p1: i,
+          p2: j,
+          dist,
+        };
+        let mindex = 0, maxdex = potentialLinks.length;
+        while (mindex < maxdex) {
+          let half = (mindex + maxdex) >> 1;
+          if (potentialLinks[half].dist > dist) maxdex = half;
+          else mindex = half + 1;
+        }
+        potentialLinks.splice(mindex, 0, newLink);
+      }
+    }
+    const firstLink = potentialLinks.shift();
+    addLink(firstLink.p1, firstLink.p2);
+    const connectedPoints = new Set([firstLink.p1, firstLink.p2]);
+    while (connectedPoints.size < points.length) {
+      const index = potentialLinks.findIndex(l => {
+        const pointSet = new Set([l.p1, l.p2])
+        const diff = pointSet.difference(connectedPoints);
+        if (diff.size !== 1) return false;
+        if (generationStrategy !== "loop") return true;
+        const p = [...pointSet.difference(diff)][0];
+        return links.filter(l => l.includes(p)).length === 1;
+      });
+      const [link] = potentialLinks.splice(index, 1);
+      addLink(link.p1, link.p2);
+      connectedPoints.add(link.p1);
+      connectedPoints.add(link.p2);
+    }
+    if (generationStrategy === "tree") return;
+    if (generationStrategy === "loop") {
+      const endpoints = points.map(p => p.id).filter(p => links.filter(l => l.includes(p)).length === 1);
+      addLink(endpoints[0], endpoints[1]);
+      return;
+    }
+    for (const link of potentialLinks) {
+      if (links.filter(l => l.includes(link.p1) || l.includes(link.p2)).length < 6 || Math.random() < 1 / numPoints**1.5) {
+        addLink(link.p1, link.p2);
+      }
+    }
+  })();
+  
+  document.getElementById("regenerate-button").innerText = "Regenerate web";
+}
+const resetVariables = () => {
+  setRepelForce(100);
+  setRepelFalloff(0.4);
+  setLinkForce(200);
+  setLinkStiffness(0.5);
+  setLinkLength(45);
+  setDamping(0.05);
+  setNumPoints(150);
+  setStrategy("web-nearest-neighbor");
+}
+resetVariables();
+buildWeb();
+
+let mouseDown = false;
+let dragging = false;
+let selectedPoint = null;
+let selectOffsetX = 0;
+let selectOffsetY = 0;
+let mouseX = 0;
+let mouseY = 0;
+let zoom = 0;
+const onMouseDown = (x, y) => {
+  mouseDown = true;
+  x = untransformX(x);
+  y = untransformY(y);
+  for (const p of points) {
+    if (Math.hypot(x - p.x, y - p.y) <= pointRadius + 1 / normalizedZoom()) {
+      if (selectedPoint) {
+        if (selectedPoint != p) {
+          const i = selectedPoint.id, j = p.id;
+          if (haveLink(i, j)) {
+            removeLink(i, j);
+          } else {
+            addLink(i, j);
+          }
+        }
+        selectedPoint = null;
+        return;
+      }
+      selectedPoint = p;
+      selectOffsetX = p.x - x;
+      selectOffsetY = p.y - y;
+      return;
+    }
+  }
+  selectedPoint = null;
+}
+const onMouseUp = () => {
+  mouseDown = false;
+  if (dragging) {
+    dragging = false;
+    selectedPoint = null;
+  }
+}
+const onMouseMove = (x, y) => {
+  x = untransformX(x);
+  y = untransformY(y);
+  mouseX = x;
+  mouseY = y;
+  
+  if (!mouseDown || selectedPoint == null) return;
+  
+  dragging = true;
+  selectedPoint.x = x + selectOffsetX;
+  selectedPoint.y = y + selectOffsetY;
+}
+const onWheel = (delta) => {
+  zoom += delta;
+}
+
+const normalizedZoom = () => 2 ** (zoom / 1000);
+const transformX = (x) => x * normalizedZoom() + canvas.width / 2;
+const transformY = (y) => y * normalizedZoom() + canvas.height / 2
+const untransformX = (x) => (x - canvas.width / 2) / normalizedZoom();
+const untransformY = (y) => (y - canvas.height / 2) / normalizedZoom();
+
+let frameCount = 0;
+let previousFps = 0;
+let previousFpsCheck = Date.now();
+let previousFrameCount = 0;
+const nextFrame = () => {
+  const elapsed = (Date.now() - previousFpsCheck) / 1000;
+  if (elapsed >= 1) {
+    previousFps = ((frameCount - previousFrameCount) / elapsed).toFixed(1);
+    previousFpsCheck = Date.now();
+    previousFrameCount = frameCount;
+  }
+  
+  ctx.globalCompositeOperation = "destination-over";
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "black";
+  ctx.fillText("X: " + mouseX, 6, 14);
+  ctx.fillText("Y: " + mouseY, 6, 28);
+  ctx.fillText("Z: " + zoom / 1000, 6, 42);
+  ctx.fillText("FPS: " + previousFps, 6, 56);
+  
+  // Calculate velocity
+  for (const p of points) {
+    for (const q of points) if (q !== p) {
+      const dx = q.x - p.x;
+      const dy = q.y - p.y;
+      const dist = Math.max(Math.hypot(dx, dy), 1);
+      const fx = dx / dist;
+      const fy = dy / dist;
+      let force = Math.min(repelFalloff - repelForce / dist, 0);
+      if (dist > linkLength) {
+        if (haveLink(p.id, q.id)) {
+          force += linkForce * ((dist / linkLength) ** linkStiffness - 1);
+        }
+      }
+      p.dx += fx * force;
+      p.dy += fy * force;
+    }
+  }
+  
+  // Move points and draw
+  let hue = 0;
+  for (const p of points) {
+    if (!dragging || p != selectedPoint) {
+      p.x += p.dx / movementFactor;
+      p.y += p.dy / movementFactor;
+    } else {
+      p.dx = 0;
+      p.dy = 0;
+    }
+    p.dx *= slowdownFactor;
+    p.dy *= slowdownFactor;
+    
+    ctx.fillStyle = `hsl(${hue} 80 50)`;
+    hue += 31;
+    ctx.beginPath();
+    ctx.arc(transformX(p.x), transformY(p.y), pointRadius * normalizedZoom(), 0, Math.PI*2);
+    if (p === selectedPoint && !dragging && !mouseDown) {
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = `rgb(0 0 0 / ${(Math.sin(frameCount / 10) + 1) / 2})`;
+      ctx.stroke();
+    }
+    ctx.fill();
+  }
+  
+  for (const l of links) {
+    for (let i = 0; i < l.length - 1; i++) {
+      const p1 = points[l[i]];
+      for (let j = i; j < l.length; j++) {
+        const p2 = points[l[j]];
+        const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        ctx.beginPath();
+        ctx.lineWidth = 4 * normalizedZoom();
+        ctx.strokeStyle = dist < linkLength ? `hsl(120 ${(1 - dist / linkLength) * 80 + 20} 50)` : `hsl(0 ${(1 - linkLength / dist) * 80 + 20} 50)`;
+        ctx.moveTo(transformX(p1.x), transformY(p1.y));
+        ctx.lineTo(transformX(p2.x), transformY(p2.y));
+        ctx.stroke();
+      }
+    }
+  }
+  
+  frameCount++;
+  requestAnimationFrame(nextFrame);
+}
+
+nextFrame()
+</script>
+</body>
+</html>
