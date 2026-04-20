@@ -10,6 +10,9 @@
     onmousedown="onMouseDown(event.offsetX, event.offsetY)"
     onmousemove="onMouseMove(event.offsetX, event.offsetY)"
     onmouseup="onMouseUp()"
+    ontouchstart="onMouseDown(event.touches[0].pageX - 8, event.touches[0].pageY - 8)"
+    ontouchmove="onMouseMove(event.touches[0].pageX - 8, event.touches[0].pageY - 8)"
+    ontouchend="onMouseUp()"
     onwheel="onWheel(event.wheelDelta)"
   ></canvas>
 
