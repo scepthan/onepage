@@ -2,9 +2,22 @@
 <html style="overscroll-behavior: none;">
 <head>
 <title>Web Page</title>
+<style>
+.main {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+}
+
+@media (max-width: 1060px) {
+  .main {
+    flex-direction: column;
+  }
+}
+</style>
 </head>
 <body style="background-color: #667;">
-<div style="display: flex; flex-direction: row">
+<div class="main">
   <canvas id="canvas"
     width="800" height="800" style="background-color: #fff"
     onmousedown="onMouseDown(event.offsetX, event.offsetY)"
@@ -16,7 +29,7 @@
     onwheel="onWheel(event.wheelDelta)"
   ></canvas>
 
-  <div style="display: flex; flex-direction: column; margin-left: 12px; width: 220px;">
+  <div style="display: flex; flex-direction: column; width: 220px;">
     <label for="repel-force">Repel force: <span id="display-repel-force"></span></label>
     <input type="range" id="repel-force" oninput="setRepelForce(this.value)" min="10" max="500" value="100" step="5">
     
