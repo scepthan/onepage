@@ -12,6 +12,10 @@
 @media (max-width: 1060px) {
   .main {
     flex-direction: column;
+    
+    * {
+      flex-grow: 0;
+    }
   }
 }
 </style>
@@ -251,6 +255,7 @@ let mouseX = 0;
 let mouseY = 0;
 let zoom = 0;
 const onMouseDown = (x, y) => {
+  console.log(canvas.offsetWidth, canvas.offsetHeight, x, y);
   mouseDown = true;
   x = untransformX(x);
   y = untransformY(y);
@@ -300,10 +305,11 @@ const onWheel = (delta) => {
 }
 
 const normalizedZoom = () => 2 ** (zoom / 1000);
+const normalizedScale = () => normalizedZoom() * (canvas.offsetWidth / canvas.width);
 const transformX = (x) => x * normalizedZoom() + canvas.width / 2;
-const transformY = (y) => y * normalizedZoom() + canvas.height / 2
-const untransformX = (x) => (x - canvas.width / 2) / normalizedZoom();
-const untransformY = (y) => (y - canvas.height / 2) / normalizedZoom();
+const transformY = (y) => y * normalizedZoom() + canvas.height / 2;
+const untransformX = (x) => (x - canvas.offsetWidth / 2) / normalizedScale();
+const untransformY = (y) => (y - canvas.offsetHeight / 2) / normalizedScale();
 
 let frameCount = 0;
 let previousFps = 0;
